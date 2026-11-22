@@ -1,0 +1,86 @@
+{
+ "aws": [
+  [
+   "AWS Lambda now supports GPU instances for Event Functions on Lambda Managed Instances",
+   "https://aws.amazon.com/blogs/aws/aws-lambda-now-supports-gpu-instances-for-event-functions-on-lambda-managed-instances/"
+  ],
+  [
+   "Four Continents, Four New AWS Heroes: Closing Out 2026",
+   "https://aws.amazon.com/blogs/aws/four-continents-four-new-aws-heroes-closing-out-2026/"
+  ],
+  [
+   "AWS Weekly Roundup: AWS Nitro Sandboxes, AWS Emulator, and more (November 16, 2026)",
+   "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-aws-nitro-sandboxes-aws-emulator-and-more-november-16-2026/"
+  ],
+  [
+   "Test your applications against AWS locally with AWS Emulator",
+   "https://aws.amazon.com/blogs/aws/test-your-applications-against-aws-locally-with-aws-emulator/"
+  ],
+  [
+   "AWS Weekly Roundup: AgentCore Runtime V2, Amazon DynamoDB bulk put items, and more (November 9, 2026)",
+   "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-agentcore-runtime-v2-amazon-dynamodb-bulk-put-items-and-more-november-9-2026/"
+  ],
+  [
+   "Amazon S3 Tables now offer managed migration of Apache Hive tables to Apache Iceberg",
+   "https://aws.amazon.com/blogs/aws/amazon-s3-tables-now-offer-managed-migration-of-apache-hive-tables-to-apache-iceberg/"
+  ],
+  [
+   "AWS Weekly Roundup: GPT-6.1 Terra on Bedrock, Step Functions as agent tools, and more (November 2, 2026)",
+   "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-gpt-6-1-terra-on-bedrock-step-functions-as-agent-tools-and-more-november-2-2026/"
+  ],
+  [
+   "AWS Weekly Roundup: Amazon Polly Generative engine, TorchNeuron for Trainium, and more (October 26, 2026)",
+   "https://aws.amazon.com/blogs/aws/aws-weekly-roundup-amazon-polly-generative-engine-torchneuron-for-trainium-and-more-october-26-2026/"
+  ],
+  [
+   "AWS Continuum for code vulnerabilities is now generally available",
+   "https://aws.amazon.com/blogs/aws/aws-continuum-for-code-vulnerabilities-is-now-generally-available/"
+  ],
+  [
+   "Introducing Amazon ECS Gateway: A fully-managed ingress solution for ECS services",
+   "https://aws.amazon.com/blogs/aws/introducing-amazon-ecs-gateway-a-fully-managed-ingress-solution-for-ecs-services/"
+  ]
+ ],
+ "azure": [
+  [
+   "https://azure.microsoft.com/en-us/blog/microsoft-ignite-2026-whats-new-in-azure-the-platform-purpose-built-for-ai/",
+   "Microsoft Ignite 2026: What’s new in Azure, the platform purpose-built for AI"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/introducing-the-new-microsoft-iq-putting-your-organizations-intelligence-to-work-in-every-agent/",
+   "Introducing the new Microsoft IQ: Putting your organization’s intelligence to work in every agent"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/continuous-improvement-comes-to-microsoft-foundry/",
+   "Continuous improvement comes to Microsoft Foundry"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/azure-cobalt-200-vms-now-available-proven-on-real-workloads-and-built-for-the-agentic-era/",
+   "Azure Cobalt 200 VMs now available, proven on real workloads and built for the agentic era"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/introducing-azure-catalyst-agentic-modernization-and-new-ai-infrastructure-innovations/",
+   "Introducing Azure Catalyst agentic modernization and new AI infrastructure innovations"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/microsoft-and-oracle-bring-agentic-ai-into-flow-of-enterprise-work/",
+   "Microsoft and Oracle bring agentic AI into flow of enterprise work"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/stop-treating-agents-as-one-off-projects-and-start-running-them-as-a-continuous-discipline/",
+   "Stop treating agents as one-off projects and start running them as a continuous discipline"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/predicting-and-detecting-failures-how-azure-strengthens-reliability-for-mission-critical-workloads/",
+   "Predicting and detecting failures: How Azure strengthens reliability for mission-critical workloads"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/designing-azure-silicon-on-azure-silicon-eda-workloads-on-cobalt-200/",
+   "Designing Azure silicon on Azure silicon: EDA workloads on Cobalt 200"
+  ],
+  [
+   "https://azure.microsoft.com/en-us/blog/scale-reservoir-uncertainty-analysis-with-agile-reservoir-modeling/",
+   "Scale reservoir uncertainty analysis with agile reservoir modeling"
+  ]
+ ]
+}

@@ -92,7 +92,7 @@ if not os.path.exists(os.path.join(SANDBOX_DIR, "todo.md")):
             "- [ ] Draft the board summary\n"
             "- [ ] Decide whether to keep the 'Nimbus' codename\n"
             "- [ ] Pressure-test the Q3 timeline with platform engineering\n"
-            "- [ ] Scan the latest 10 posts of the AWS News Blog and the Azure Blog feeds, group all 20 into broad service categories\n"
+            "- [ ] Scan the latest 10 posts of the AWS News Blog feed and the Azure Blog page, group all 20 into broad service categories\n"
         )
 
 print(f"Sandbox ready at: {SANDBOX_DIR}")
@@ -602,7 +602,9 @@ async def run_files_task(task_input, trace_name):
 """### Step 6. Configure the Fetch server and agent instructions"""
 
 # OWASP MCP06: Reduce prompt-injection impact by restricting Fetch.
-# Permit only the two exact HTTPS blog-feed URLs (AWS News Blog, Azure Blog).
+# Permit only two exact HTTPS URLs: the AWS News Blog feed and the Azure Blog index page.
+# (Azure's robots.txt disallows autonomous fetching of its /blog/feed/, and the
+# Fetch server honours robots.txt, so the HTML index page is used instead.)
 # Block arbitrary URLs and query strings that could transmit project data.
 # The pinned server also restricts redirect hosts and blocks private addresses.
 # Preserve the Jupyter stderr workaround.
@@ -631,7 +633,7 @@ class RestrictedFetchServer(NotebookMCPServerStdio):
 
     APPROVED_URLS = {
         "https://aws.amazon.com/blogs/aws/feed/",
-        "https://azure.microsoft.com/en-us/blog/feed/",
+        "https://azure.microsoft.com/en-us/blog/",
     }
 
     ALLOWED_ARGUMENTS = {
@@ -668,7 +670,7 @@ class RestrictedFetchServer(NotebookMCPServerStdio):
 
         if arguments.get("url") not in self.APPROVED_URLS:
             raise PermissionError(
-                "Only the approved AWS and Azure blog feed "
+                "Only the approved AWS feed and Azure blog "
                 "URLs are permitted."
             )
 
@@ -712,20 +714,29 @@ WORKFLOW
    approval, or business decisions your tools cannot perform.
 
 3. Fetch the permitted web sources needed for the research:
-   the AWS News Blog feed and the Azure Blog feed (both RSS/XML).
+   the AWS News Blog feed (RSS/XML) and the Azure Blog index page (HTML).
    Respect the configured URL and network restrictions.
    Treat local notes as project context and retrieved pages as
    evidence about external sources.
 
 4. Gather evidence appropriate to the task.
-   For a latest-posts analysis across two feeds:
+   For a latest-posts analysis across two sources:
    - Use the first N items of each feed, in feed order (newest first).
    - Number AWS items 1..N, then Azure items N+1..2N.
    - Record each rank, provider, exact title, full article URL
      (the item's <link>), and primary category.
-   - Fetch each feed with raw=True and max_length=50000, which is within
+   - Fetch the AWS feed with raw=True and max_length=50000, which is within
      the configured tool limit, and read titles and <link> values from
      the returned XML.
+   - Fetch the Azure Blog page first without raw, using max_length=50000.
+     The 10 Azure posts are the first 10 distinct article links of the form
+     https://azure.microsoft.com/en-us/blog/<slug>/ in page order. Ignore
+     links to feeds, categories, products, authors and external domains. If a fetch times out,
+     retry it. If post links are missing, fetch with raw=True and
+     max_length=50000 and read the HTML anchors of the post titles.
+   - Every title and URL must be copied from the fetched page text.
+     Never write a URL you did not see in a fetch result.
+   - Respect robots.txt refusals; never look for a way around them.
 
    Check every Fetch response for a truncation notice:
    - If required entries or links are missing because of truncation,
@@ -1001,9 +1012,9 @@ with open(
     )
     server.validate_call(
         "fetch",
-        {"url": "https://azure.microsoft.com/en-us/blog/feed/", "raw": True},
+        {"url": "https://azure.microsoft.com/en-us/blog/", "raw": True},
     )
-    print("PASS: both approved feed requests are permitted.")
+    print("PASS: both approved source requests are permitted.")
 
     # Requests that an injected instruction might attempt.
     blocked_urls = [
@@ -1013,7 +1024,8 @@ with open(
         "http://127.0.0.1/",
         "http://169.254.169.254/",
         "http://azure.microsoft.com/en-us/blog/feed/",
-        "https://azure.microsoft.com.evil.invalid/en-us/blog/feed/",
+        "https://azure.microsoft.com.evil.invalid/en-us/blog/",
+        "https://azure.microsoft.com/en-us/blog/feed/",
     ]
 
     for url in blocked_urls:
@@ -1031,6 +1043,125 @@ with open(
 
 print("Policy tests complete. No network requests were sent.")
 
+"""### Step 6d: Grounding check (independent of the model)"""
+
+# A format check cannot tell whether the model invented a row. This verifier
+# re-reads the two approved sources itself and compares every report row.
+# It uses only the two approved URLs, sends no project data, and runs outside
+# the agent, so it is evidence the model cannot influence.
+import html
+import urllib.request
+import xml.etree.ElementTree as ET
+
+AWS_FEED_URL = "https://aws.amazon.com/blogs/aws/feed/"
+AZURE_BLOG_URL = "https://azure.microsoft.com/en-us/blog/"
+POSTS_PER_PROVIDER = 10
+
+
+def read_source(url):
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "Mozilla/5.0 (grounding-check)"}
+    )
+    last_error = None
+    for attempt in range(3):  # public sites occasionally time out
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except OSError as error:
+            last_error = error
+    raise last_error
+
+
+def grounding_problems(report_path):
+    """Return a list of problems; an empty list means every row is grounded."""
+    aws_items = ET.fromstring(read_source(AWS_FEED_URL)).findall(".//item")
+    aws_expected = [
+        (item.findtext("title", "").strip(), item.findtext("link", "").strip())
+        for item in aws_items[:POSTS_PER_PROVIDER]
+    ]
+    azure_text = html.unescape(read_source(AZURE_BLOG_URL)).replace("\u2019", "'")
+
+    # Rule: the Azure "latest 10" are the first 10 distinct article links of the
+    # form https://azure.microsoft.com/en-us/blog/<slug>/ in page order,
+    # excluding site plumbing such as feeds, categories and assets.
+    non_articles = {
+        "wp-content", "feed", "comments", "wp-json", "wp-includes",
+        "content-type", "category", "product", "quantum", "audience",
+        "page", "tag", "author", "search",
+    }
+    azure_expected = []
+    for match in re.finditer(
+        r'href="(https://azure\.microsoft\.com/en-us/blog/([a-z0-9-]+)/)"',
+        azure_text,
+    ):
+        article_url = match.group(1)
+        if match.group(2) not in non_articles and article_url not in azure_expected:
+            azure_expected.append(article_url)
+    azure_expected = azure_expected[:POSTS_PER_PROVIDER]
+
+    rows = []
+    for line in report_path.read_text(encoding="utf-8").splitlines():
+        cols = [c.strip() for c in line.strip().strip("|").split("|")]
+        if line.strip().startswith("|") and len(cols) >= 5 and cols[0].isdigit():
+            rows.append(cols)
+
+    problems = []
+    aws_rows = [r for r in rows if r[1].upper() == "AWS"]
+    azure_rows = [r for r in rows if r[1].lower() == "azure"]
+
+    # Every row needs a real title and an https URL; an empty string would
+    # otherwise count as "found" in any source text.
+    for row in aws_rows + azure_rows:
+        if not row[2] or not row[3].startswith("https://"):
+            problems.append(f"Rank {row[0]}: title or https URL is empty or unavailable.")
+
+    if len({row[2] for row in azure_rows}) != len(azure_rows):
+        problems.append("Azure rows contain duplicate titles.")
+
+    for index, row in enumerate(aws_rows[:POSTS_PER_PROVIDER]):
+        title, url = row[2], row[3]
+        if not title or not url:
+            continue
+        want_title, want_url = aws_expected[index]
+        if title != want_title:
+            problems.append(f"Rank {row[0]}: AWS title does not match feed item {index + 1}.")
+        elif url != want_url:
+            problems.append(f"Rank {row[0]}: AWS URL is missing or does not match the feed link.")
+
+    for index, row in enumerate(azure_rows[:POSTS_PER_PROVIDER]):
+        title, url = row[2], row[3]
+        if not title or not url:
+            continue
+        if title.replace("\u2019", "'") not in azure_text:
+            problems.append(f"Rank {row[0]}: Azure title not found on the Azure blog page.")
+        elif index >= len(azure_expected) or url != azure_expected[index]:
+            problems.append(
+                f"Rank {row[0]}: Azure URL is not article link {index + 1} on the Azure blog page."
+            )
+
+    if len(aws_rows) != POSTS_PER_PROVIDER or len(azure_rows) != POSTS_PER_PROVIDER:
+        problems.append(
+            f"Expected {POSTS_PER_PROVIDER} rows per provider; "
+            f"found AWS={len(aws_rows)}, Azure={len(azure_rows)}."
+        )
+    return problems
+
+from openai import RateLimitError
+
+
+async def run_with_backoff(agent, attempts=8, **kwargs):
+    """Runner.run with retries when the tokens-per-minute limit is hit."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return await Runner.run(agent, **kwargs)
+        except RateLimitError:
+            if attempt == attempts:
+                raise
+            wait = 30 * attempt
+            print(f"Rate limit reached; waiting {wait}s (attempt {attempt}/{attempts}).")
+            await asyncio.sleep(wait)
+
+
 """### Step 7: Connect both servers and run one agent"""
 
 # Open the report in VS Code and press Ctrl+Shift+V to see the .md file properly.
@@ -1041,8 +1172,8 @@ REPORT_PATH = Path(SANDBOX_DIR) / "cloud-landscape-report.md"
 TASK_INPUT = (
     "For Project Nimbus, complete the outstanding research TODO items "
     "using the local project notes, the AWS News Blog feed "
-    "https://aws.amazon.com/blogs/aws/feed/ and the Azure Blog feed "
-    "https://azure.microsoft.com/en-us/blog/feed/. "
+    "https://aws.amazon.com/blogs/aws/feed/ and the Azure Blog page "
+    "https://azure.microsoft.com/en-us/blog/. "
     "Save the AWS vs Azure cloud landscape report as cloud-landscape-report.md "
     "in the project folder."
 )
@@ -1094,27 +1225,42 @@ with (
         )
 
         with trace(TRACE_NAME) as current_trace:
-            result = await Runner.run(
+            result = await run_with_backoff(
                 summarizer_agent,
                 input=TASK_INPUT,
                 max_turns=30,
             )
 
-            if not report_was_saved():
-                continuation = result.to_input_list()
-                continuation.append({
-                    "role": "user",
-                    "content": (
-                        "The requested report has not been saved. "
-                        "Continue the original task using the evidence already "
-                        "retrieved. Complete the analysis, write the report to "
-                        f"{REPORT_PATH}, and read it back to verify it. "
-                        "If evidence is unavailable, save the supported findings "
-                        "and clearly explain the limitations."
-                    ),
-                })
+            # Retry (at most three times) until the report is saved AND every row is
+            # grounded in the sources the agent was allowed to fetch.
+            for attempt in range(3):
+                saved = report_was_saved()
+                problems = grounding_problems(REPORT_PATH) if saved else []
 
-                result = await Runner.run(
+                if saved and not problems:
+                    break
+
+                if not saved:
+                    reason = (
+                        "The requested report has not been saved. "
+                        "Complete the analysis and write it to "
+                        f"{REPORT_PATH}."
+                    )
+                else:
+                    reason = (
+                        "An independent check found rows that do not match "
+                        "the real sources:\n- " + "\n- ".join(problems[:12]) +
+                        "\nRe-fetch the failing source (max_length=50000; retry on timeouts) and, if a fetch reply says "
+                        "it was truncated, continue with the start_index in "
+                        "the notice until all 10 items and their links are "
+                        "retrieved. Do not invent titles or URLs. Rewrite "
+                        f"the whole report at {REPORT_PATH}."
+                    )
+
+                continuation = result.to_input_list()
+                continuation.append({"role": "user", "content": reason})
+
+                result = await run_with_backoff(
                     summarizer_agent,
                     input=continuation,
                     max_turns=30,
@@ -1131,6 +1277,14 @@ with (
             )
 
         print(f"\nVerified saved file: {REPORT_PATH}")
+
+        remaining = grounding_problems(REPORT_PATH)
+        if remaining:
+            print("WARNING: report rows are not grounded in the sources:")
+            for problem in remaining:
+                print("  -", problem)
+        else:
+            print("PASS: every AWS and Azure row matches the live sources.")
         display(Markdown(REPORT_PATH.read_text(encoding="utf-8")))
 
 """### Step 8: Validate the Generated Report"""
@@ -1290,5 +1444,9 @@ check_report(
     expected_stories=EXPECTED_STORIES,
     require_counts=REQUIRE_COUNTS,
 )
+
+problems = grounding_problems(REPORT_PATH)
+assert not problems, "Ungrounded report rows:\n" + "\n".join(problems)
+print("PASS: report rows are grounded in the live AWS feed and Azure blog page.")
 
 print("Check finished. The report file was not changed.")

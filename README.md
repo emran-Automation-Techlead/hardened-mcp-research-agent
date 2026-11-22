@@ -1,6 +1,6 @@
 # ☁️ Hardened MCP Research Agent — AWS vs Azure Radar
 
-> An AI research agent that reads private cloud-migration notes **and** the live AWS and Azure blog feeds to compare where each provider is investing — while every tool call is allow-listed, audited, and pinned to a verified package.
+> An AI research agent that reads private cloud-migration notes **and** the live the AWS blog feed and Azure blog page to compare where each provider is investing — while every tool call is allow-listed, audited, and pinned to a verified package.
 
 ![Python](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/protocol-MCP-111827)
@@ -9,13 +9,13 @@
 
 ## What it does
 
-The agent is given a fictional project ("Project Nimbus": choose AWS or Azure as the primary cloud), reads its local notes and TODO list through a **Filesystem MCP server**, pulls the latest 10 posts from the **AWS News Blog** and **Azure Blog** RSS feeds through a **Fetch MCP server**, groups all 20 by service category (AI/ML, Compute, Data, Security…), and writes a `cloud-landscape-report.md`. The interesting part is the security wrapper around both servers, which maps to the OWASP MCP Top 10:
+The agent is given a fictional project ("Project Nimbus": choose AWS or Azure as the primary cloud), reads its local notes and TODO list through a **Filesystem MCP server**, pulls the latest 10 posts from the **AWS News Blog** RSS feed and the **Azure Blog** page through a **Fetch MCP server**, groups all 20 by service category (AI/ML, Compute, Data, Security…), and writes a `cloud-landscape-report.md`. The interesting part is the security wrapper around both servers, which maps to the OWASP MCP Top 10:
 
 | Control | Risk | What this repo does |
 |---|---|---|
 | Supply-chain pinning | MCP04 | Exact package versions, explicit registries, **npm `sha512` integrity** and **PyPI `sha256`** checks recorded in code |
 | Environment allow-list | MCP01 | Child processes only receive approved variables (Windows + macOS/Linux). `OPENAI_API_KEY` is never passed |
-| URL & argument policy | MCP06 | Fetch is limited to two exact HTTPS feed URLs (AWS, Azure), bounded `max_length`/`start_index`, no extra arguments; private IPs and foreign redirects blocked |
+| URL & argument policy | MCP06 | Fetch is limited to two exact HTTPS URLs (AWS feed, Azure blog page), bounded `max_length`/`start_index`, no extra arguments; private IPs and foreign redirects blocked |
 | Path & tool policy | — | Filesystem exposes 4 tools; reads limited to 3 files, writes limited to one report path |
 | Audit logging | MCP08 | JSONL record per call (`requested → permitted → succeeded/blocked`), **never** logging arguments or content |
 
@@ -30,7 +30,7 @@ flowchart LR
     P --> FS[Restricted Filesystem Server<br/>npx server-filesystem@1.0.0]
     P --> FE[Restricted Fetch Server<br/>uvx mcp-server-fetch==2026.11.18]
     FS --> W[(Project sandbox<br/>notes · todo · cloud report)]
-    FE --> H[aws.amazon.com + azure.microsoft.com feeds only]
+    FE --> H[aws.amazon.com + azure.microsoft.com only]
     A --> R[cloud-landscape-report.md]
     R --> V[Report validator<br/>ranks 1-20 + category counts]
 ```
@@ -92,4 +92,10 @@ Hashes are recorded constants. After reviewing a new release, re-run `npm view <
 
 Pinning and hash checks reduce, but do not eliminate, supply-chain risk and say nothing about vulnerabilities in the package. A single feed snapshot shows what was published recently, not long-term investment, pricing or product quality.
 
-See [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+## Documentation & evidence
+
+- 📄 [Full guide (PDF)](docs/Hardened-MCP-Agent-Guide.pdf): how it works, how to use it, how traces are verified, live results
+- 🧪 [Run history](docs/run-history/): the real agent outputs from each run, including the ones that failed verification
+- 🗺️ [Plan & roadmap](docs/PLAN.md)
+
+**Lesson from the live runs:** one run passed the rank/count validator while containing invented rows. The grounding check in Step 6d re-reads the AWS feed and Azure blog page and compares every row, so a well-formatted but fabricated report cannot pass.
