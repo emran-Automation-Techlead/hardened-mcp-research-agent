@@ -4,5 +4,5 @@ __pycache__/
 trace.flush
 .ipynb_checkpoints/
 # Generated at run time
-secret_project_00*/
+cloud_project_*/
 security-audit/

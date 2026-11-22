@@ -1,6 +1,6 @@
-# 🛡️ Hardened MCP Research Agent
+# ☁️ Hardened MCP Research Agent — AWS vs Azure Radar
 
-> An AI research agent that reads private project notes **and** the live web — while every tool call is allow-listed, audited, and pinned to a verified package.
+> An AI research agent that reads private cloud-migration notes **and** the live AWS and Azure blog feeds to compare where each provider is investing — while every tool call is allow-listed, audited, and pinned to a verified package.
 
 ![Python](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/protocol-MCP-111827)
@@ -9,13 +9,13 @@
 
 ## What it does
 
-The agent is given a fictional project ("Project Falcon"), reads its local notes and TODO list through a **Filesystem MCP server**, scrapes the Hacker News front page through a **Fetch MCP server**, and writes a competitive-teardown report. The interesting part is the security wrapper around both servers, which maps to the OWASP MCP Top 10:
+The agent is given a fictional project ("Project Nimbus": choose AWS or Azure as the primary cloud), reads its local notes and TODO list through a **Filesystem MCP server**, pulls the latest 10 posts from the **AWS News Blog** and **Azure Blog** RSS feeds through a **Fetch MCP server**, groups all 20 by service category (AI/ML, Compute, Data, Security…), and writes a `cloud-landscape-report.md`. The interesting part is the security wrapper around both servers, which maps to the OWASP MCP Top 10:
 
 | Control | Risk | What this repo does |
 |---|---|---|
 | Supply-chain pinning | MCP04 | Exact package versions, explicit registries, **npm `sha512` integrity** and **PyPI `sha256`** checks recorded in code |
 | Environment allow-list | MCP01 | Child processes only receive approved variables (Windows + macOS/Linux). `OPENAI_API_KEY` is never passed |
-| URL & argument policy | MCP06 | Fetch is limited to one exact HTTPS URL, bounded `max_length`/`start_index`, no extra arguments; private IPs and foreign redirects blocked |
+| URL & argument policy | MCP06 | Fetch is limited to two exact HTTPS feed URLs (AWS, Azure), bounded `max_length`/`start_index`, no extra arguments; private IPs and foreign redirects blocked |
 | Path & tool policy | — | Filesystem exposes 4 tools; reads limited to 3 files, writes limited to one report path |
 | Audit logging | MCP08 | JSONL record per call (`requested → permitted → succeeded/blocked`), **never** logging arguments or content |
 
@@ -23,16 +23,16 @@ The agent is given a fictional project ("Project Falcon"), reads its local notes
 
 ```mermaid
 flowchart LR
-    U[Task input] --> A[Summarizer Agent<br/>gpt-4.1]
+    U[Task input] --> A[Cloud Research Agent<br/>gpt-4.1]
     A -->|tool call| P{Policy layer<br/>validate_call}
     P -->|blocked| L[(Audit log<br/>mcp-audit.jsonl)]
     P -->|permitted| L
     P --> FS[Restricted Filesystem Server<br/>npx server-filesystem@1.0.0]
     P --> FE[Restricted Fetch Server<br/>uvx mcp-server-fetch==2026.11.18]
-    FS --> W[(Project sandbox<br/>notes · todo · report)]
-    FE --> H[news.ycombinator.com only]
-    A --> R[competitive-teardown.md]
-    R --> V[Report validator<br/>ranks + category counts]
+    FS --> W[(Project sandbox<br/>notes · todo · cloud report)]
+    FE --> H[aws.amazon.com + azure.microsoft.com feeds only]
+    A --> R[cloud-landscape-report.md]
+    R --> V[Report validator<br/>ranks 1-20 + category counts]
 ```
 
 ## Tech stack
@@ -56,7 +56,7 @@ hardened-mcp-research-agent/
 └── LICENSE
 ```
 
-Runtime folders (`secret_project_007/` sandbox, `secret_project_006/` decoy, `security-audit/`) are generated on first run and git-ignored.
+Runtime folders (`cloud_project_nimbus/` sandbox, `cloud_project_decoy/` decoy, `security-audit/`) are generated on first run and git-ignored.
 
 ## Walkthrough of the script
 
@@ -67,7 +67,7 @@ Runtime folders (`secret_project_007/` sandbox, `secret_project_006/` decoy, `se
 5. **Package checks** – asserts args, registry metadata, npm integrity, and PyPI hashes.
 6. **Policy tests** – offline proofs that secrets, outside paths, bad URLs and SSRF targets are blocked.
 7. **Agent run** – both servers connected, one agent, report-saved verification with a retry.
-8. **Report validation** – ranks 1–20 in order; category counts reconcile with the table.
+8. **Report validation** – ranks 1–20 in order (10 AWS, then 10 Azure); category counts reconcile with the table.
 
 ## Getting started
 
@@ -90,6 +90,6 @@ Hashes are recorded constants. After reviewing a new release, re-run `npm view <
 
 ## Limitations
 
-Pinning and hash checks reduce, but do not eliminate, supply-chain risk and say nothing about vulnerabilities in the package. A single front-page snapshot cannot show recurring popularity.
+Pinning and hash checks reduce, but do not eliminate, supply-chain risk and say nothing about vulnerabilities in the package. A single feed snapshot shows what was published recently, not long-term investment, pricing or product quality.
 
 See [docs/PLAN.md](docs/PLAN.md) for the roadmap.
