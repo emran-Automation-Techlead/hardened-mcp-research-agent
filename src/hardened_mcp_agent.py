@@ -676,7 +676,7 @@ class RestrictedFetchServer(NotebookMCPServerStdio):
 
         # Bound the amount returned and the pagination offset.
         for name, default, lower, upper in [
-            ("max_length", 5000, 1, 50000),
+            ("max_length", 5000, 1, 10000),
             ("start_index", 0, 0, 500000),
         ]:
             value = arguments.get(name, default)
@@ -725,17 +725,14 @@ WORKFLOW
    - Number AWS items 1..N, then Azure items N+1..2N.
    - Record each rank, provider, exact title, full article URL
      (the item's <link>), and primary category.
-   - Fetch the AWS feed with raw=True and max_length=50000, which is within
-     the configured tool limit, and read titles and <link> values from
-     the returned XML.
-   - Fetch the Azure Blog page first without raw, using max_length=50000.
-     The 10 Azure posts are the first 10 distinct article links of the form
-     https://azure.microsoft.com/en-us/blog/<slug>/ in page order. Ignore
-     links to feeds, categories, products, authors and external domains. If a fetch times out,
-     retry it. If post links are missing, fetch with raw=True and
-     max_length=50000 and read the HTML anchors of the post titles.
-   - Every title and URL must be copied from the fetched page text.
-     Never write a URL you did not see in a fetch result.
+   - A trusted digest of both sources (titles, links, categories) is given
+     in the task, parsed by code. Use it as the primary evidence.
+     Fetch only to corroborate a single item, with max_length no larger
+     than 8000; never fetch whole pages.
+   - Azure posts are the first 10 article links of the form
+     https://azure.microsoft.com/en-us/blog/<slug>/ in the digest's order.
+   - Every title and URL must be copied from the digest or a fetch result.
+     Never write a URL you did not see.
    - Respect robots.txt refusals; never look for a way around them.
 
    Check every Fetch response for a truncation notice:
@@ -1146,10 +1143,49 @@ def grounding_problems(report_path):
         )
     return problems
 
+def source_digest():
+    """Parse both approved sources in code and return a compact Markdown digest.
+
+    Only titles, links and categories are kept (about 2-3 KB instead of two
+    50,000-character pages), so the model never has to read raw XML/HTML.
+    Uses only the two approved URLs and sends no project data.
+    """
+    lines = ["AWS News Blog (feed order, newest first):"]
+    items = ET.fromstring(read_source(AWS_FEED_URL)).findall(".//item")
+    for rank, item in enumerate(items[:POSTS_PER_PROVIDER], 1):
+        categories = [c.text.strip() for c in item.findall("category") if c.text][:3]
+        lines.append(
+            f"{rank} | {item.findtext('title', '').strip()} | "
+            f"{item.findtext('link', '').strip()} | {', '.join(categories) or '-'}"
+        )
+
+    page = html.unescape(read_source(AZURE_BLOG_URL))
+    non_articles = {
+        "wp-content", "feed", "comments", "wp-json", "wp-includes",
+        "content-type", "category", "product", "quantum", "audience",
+        "page", "tag", "author", "search",
+    }
+    lines.append("")
+    lines.append("Azure Blog (first article links in page order):")
+    seen = []
+    for match in re.finditer(
+        r'href="(https://azure\.microsoft\.com/en-us/blog/([a-z0-9-]+)/)"[^>]*>([^<]*)',
+        page,
+    ):
+        url, slug, text = match.group(1), match.group(2), match.group(3).strip()
+        if slug in non_articles or url in seen or not text:
+            continue
+        seen.append(url)
+        lines.append(f"{POSTS_PER_PROVIDER + len(seen)} | {text} | {url}")
+        if len(seen) == POSTS_PER_PROVIDER:
+            break
+    return "\n".join(lines)
+
+
 from openai import RateLimitError
 
 
-async def run_with_backoff(agent, attempts=8, **kwargs):
+async def run_with_backoff(agent, attempts=3, **kwargs):
     """Runner.run with retries when the tokens-per-minute limit is hit."""
     for attempt in range(1, attempts + 1):
         try:
@@ -1157,7 +1193,7 @@ async def run_with_backoff(agent, attempts=8, **kwargs):
         except RateLimitError:
             if attempt == attempts:
                 raise
-            wait = 30 * attempt
+            wait = 20 * attempt
             print(f"Rate limit reached; waiting {wait}s (attempt {attempt}/{attempts}).")
             await asyncio.sleep(wait)
 
@@ -1197,6 +1233,8 @@ def report_was_saved():
         REPORT_PATH.read_text(encoding="utf-8").strip()
     )
 
+MAX_REPAIR_ATTEMPTS = 2  # hard cap on model re-runs after the first attempt
+
 with (
     open("mcp-filesystem-err.log", "a", encoding="utf-8") as filesystem_log,
     open("mcp-fetch-err.log", "a", encoding="utf-8") as fetch_log,
@@ -1225,45 +1263,60 @@ with (
         )
 
         with trace(TRACE_NAME) as current_trace:
-            result = await run_with_backoff(
-                summarizer_agent,
-                input=TASK_INPUT,
-                max_turns=30,
+            digest = source_digest()
+            task_with_digest = (
+                TASK_INPUT
+                + "\n\nTRUSTED SOURCE DIGEST (parsed by code; rank | title | url | category):\n"
+                + digest
             )
 
-            # Retry (at most three times) until the report is saved AND every row is
-            # grounded in the sources the agent was allowed to fetch.
-            for attempt in range(3):
+            result = await run_with_backoff(
+                summarizer_agent,
+                input=task_with_digest,
+                max_turns=15,
+            )
+
+            # HARD CAP: at most MAX_REPAIR_ATTEMPTS rewrites, then fail loudly.
+            # Each repair starts from a FRESH short input (task + digest +
+            # problem list). It never replays the earlier conversation, so
+            # token usage does not grow from one attempt to the next.
+            problems = []
+            for attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
                 saved = report_was_saved()
                 problems = grounding_problems(REPORT_PATH) if saved else []
 
                 if saved and not problems:
                     break
 
-                if not saved:
-                    reason = (
-                        "The requested report has not been saved. "
-                        "Complete the analysis and write it to "
-                        f"{REPORT_PATH}."
-                    )
-                else:
-                    reason = (
-                        "An independent check found rows that do not match "
-                        "the real sources:\n- " + "\n- ".join(problems[:12]) +
-                        "\nRe-fetch the failing source (max_length=50000; retry on timeouts) and, if a fetch reply says "
-                        "it was truncated, continue with the start_index in "
-                        "the notice until all 10 items and their links are "
-                        "retrieved. Do not invent titles or URLs. Rewrite "
-                        f"the whole report at {REPORT_PATH}."
-                    )
-
-                continuation = result.to_input_list()
-                continuation.append({"role": "user", "content": reason})
+                reason = (
+                    "The requested report has not been saved."
+                    if not saved
+                    else "An independent check found rows that do not match "
+                         "the real sources:\n- " + "\n- ".join(problems[:12])
+                )
+                print(f"Repair attempt {attempt}/{MAX_REPAIR_ATTEMPTS}: {reason[:120]}")
 
                 result = await run_with_backoff(
                     summarizer_agent,
-                    input=continuation,
-                    max_turns=30,
+                    input=(
+                        task_with_digest
+                        + "\n\nCORRECTION NEEDED:\n" + reason
+                        + "\nRewrite the whole report at " + str(REPORT_PATH)
+                        + " using ONLY the digest above. Do not invent titles or URLs."
+                    ),
+                    max_turns=8,
+                )
+            else:
+                # Loop used every attempt: judge the last rewrite once, then stop.
+                problems = (
+                    grounding_problems(REPORT_PATH) if report_was_saved() else ["report not saved"]
+                )
+
+            if problems:
+                raise RuntimeError(
+                    f"Stopped after {MAX_REPAIR_ATTEMPTS} repair attempts; "
+                    "the report is still not grounded:\n- " + "\n- ".join(problems[:12])
+                    + "\nNo further model calls were made."
                 )
 
         print(f"\nTrace Name: {TRACE_NAME}")
@@ -1278,13 +1331,7 @@ with (
 
         print(f"\nVerified saved file: {REPORT_PATH}")
 
-        remaining = grounding_problems(REPORT_PATH)
-        if remaining:
-            print("WARNING: report rows are not grounded in the sources:")
-            for problem in remaining:
-                print("  -", problem)
-        else:
-            print("PASS: every AWS and Azure row matches the live sources.")
+        print("PASS: every AWS and Azure row matches the live sources.")
         display(Markdown(REPORT_PATH.read_text(encoding="utf-8")))
 
 """### Step 8: Validate the Generated Report"""
