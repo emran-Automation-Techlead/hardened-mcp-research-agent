@@ -219,7 +219,7 @@ def verification_loop():
     d = Drawing(500, 120)
     box(d, 5, 40, 95, 44, "Agent writes\nreport", NAVY)
     box(d, 135, 40, 120, 44, "Grounding verifier\nre-reads both sources", RED)
-    box(d, 290, 70, 100, 36, "Problems found?\nretry (max 3)", ORANGE, 7.5)
+    box(d, 290, 70, 100, 36, "Problems found?\nrepair (max 2)", ORANGE, 7.5)
     box(d, 290, 12, 100, 36, "All rows grounded\nPASS", GREEN, 7.5)
     box(d, 410, 40, 85, 44, "Step 8\nfinal asserts", BLUE)
     arrow(d, 100, 62, 135, 62)
@@ -284,6 +284,7 @@ flowchart LR
     FE --> H[aws.amazon.com + azure.microsoft.com only]
     A --> R[cloud-landscape-report.md]
     R --> V[Report validator<br/>ranks 1-20 + category counts]
+    D[source_digest<br/>title - link - category] --> A
     A -.spans.-> T[(Trace: OpenAI Traces)]
     L -.same trace_id.- T
     R --> G[Grounding verifier<br/>re-reads AWS feed + Azure page]
@@ -375,7 +376,7 @@ s += [P("3. How it works, step by step", h1),
              ["5 Prompts", "FILES_AGENT_PROMPT sets workflow and honesty rules.",
               "Instructions complement, never replace, code-level policy."],
              ["6 Fetch config", "Pins mcp-server-fetch, allows only two hosts, RestrictedFetchServer permits only "
-                                "two exact URLs (AWS feed, Azure blog page) and bounds max_length, start_index, raw.",
+                                "two exact URLs (AWS feed, Azure blog page) and bounds max_length (max 10,000), start_index, raw.",
               "OWASP MCP06. Blocks data exfiltration through URLs."],
              ["6a-6c Tests", "Offline checks: dummy secrets excluded from env; audit log has only approved "
                              "fields; bad URLs are blocked with no network calls.",
@@ -384,8 +385,13 @@ s += [P("3. How it works, step by step", h1),
                                     "every report row: exact titles/URLs for AWS, exact article-link order for Azure, "
                                     "no blanks, no duplicates.",
               "Catches fabricated rows that a format check cannot see."],
-             ["7 Agent run", "Starts both servers, runs the agent inside trace(), then retries up to 3 times until "
-                             "the report is saved AND grounded. Model calls use run_with_backoff for rate limits.",
+             ["7 Agent run", "source_digest() parses the AWS feed and Azure page in code first (title/link/category only, "
+                             "~4.6 KB instead of ~100 KB of raw HTML/XML); the agent fetches a page directly only to "
+                             "confirm a single item. Turn limit 15 on the first run, 8 on repairs. If the report is not "
+                             "saved and grounded: MAX_REPAIR_ATTEMPTS = 2, each repair starts from a fresh short input "
+                             "(task + digest + problem list), not the full history. Still ungrounded after the cap: "
+                             "RuntimeError listing the problems, no further model calls. Rate-limit retries: 3 "
+                             "(run_with_backoff).",
               "Success is verified from disk and from the sources, not from the model's claim."],
              ["8 Validation", "check_report confirms ranks 1-20 once each in order and that any Category "
                               "Counts match the table.",
@@ -412,7 +418,7 @@ s += [P("4. Security controls in detail", h1),
                                          "Drives a bounded retry loop."],
              ["robots.txt", "-", "The Fetch server honours robots.txt. Azure's /blog/feed/ is disallowed, so the "
                                  "design uses the allowed blog index page; the policy never uses --ignore-robots-txt."],
-             ["Rate-limit backoff", "-", "run_with_backoff retries on HTTP 429 with increasing waits."],
+             ["Rate-limit backoff", "-", "run_with_backoff retries on HTTP 429 with increasing waits, at most 3 attempts."],
              ["Prompt rules", "-", "File and web content is treated as data, never as instructions."]],
             [36 * mm, 18 * mm, 116 * mm]),
       P("Environment allow-list", h2),
@@ -455,8 +461,9 @@ s += B([
     "and search for that ID, or filter by the workflow name.",
     "<b>Check the span tree.</b> Expect the Cloud Research Agent span containing generation spans and "
     "tool spans: list_allowed_directories, list_directory, read_text_file x2, several fetch spans (AWS feed, "
-    "Azure page, plus any continuation or retry fetches), write_file, and a read_text_file to read the report back. "
-    "Rewrites after the grounding check add further fetch / write_file / read_text_file spans in the same trace.",
+    "Azure page, only when the agent confirms an item; the digest is parsed in code, outside the trace), write_file, "
+    "and a read_text_file to read the report back. A repair (at most 2) adds a further generation span plus "
+    "write_file / read_text_file spans in the same trace.",
     "<b>Match counts.</b> The number of tool spans that executed should equal the audit-log events with status "
     "permitted for that trace_id (the audit log counts only MCP calls, so ignore model-generation spans). A blocked call typically shows an error in the trace but has no succeeded record.",
     "<b>Confirm URLs and paths</b> in the span inputs are only the two approved feed URLs and files inside "
@@ -609,9 +616,9 @@ s += B([
     "The audit log is a local file; for production use, ship it to append-only storage.",
     "Only the code-level policy is a hard boundary. Prompt rules are guidance.",
     "The grounding verifier proves rows match the sources at check time; a feed that changes between the agent's "
-    "fetch and the check can cause a false alarm, which the retry loop absorbs.",
-    "gpt-4.1 requests with large fetched pages can hit tokens-per-minute limits; the backoff helper reduces but "
-    "does not remove that risk.",
+    "fetch and the check can cause a false alarm, which the bounded repair (at most 2 attempts) absorbs.",
+    "gpt-4.1 can still hit tokens-per-minute limits on a busy account; the compact digest keeps each request small "
+    "and run_with_backoff (3 attempts) reduces, but does not remove, that risk.",
     "The reference table and categories in section 6 are a single dated snapshot, not a trend.",
 ])
 s += [P("9. Conclusion", h1),

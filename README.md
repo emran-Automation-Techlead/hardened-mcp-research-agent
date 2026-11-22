@@ -15,7 +15,7 @@ The agent is given a fictional project ("Project Nimbus": choose AWS or Azure as
 |---|---|---|
 | Supply-chain pinning | MCP04 | Exact package versions, explicit registries, **npm `sha512` integrity** and **PyPI `sha256`** checks recorded in code |
 | Environment allow-list | MCP01 | Child processes only receive approved variables (Windows + macOS/Linux). `OPENAI_API_KEY` is never passed |
-| URL & argument policy | MCP06 | Fetch is limited to two exact HTTPS URLs (AWS feed, Azure blog page), bounded `max_length`/`start_index`, no extra arguments; private IPs and foreign redirects blocked |
+| URL & argument policy | MCP06 | Fetch is limited to two exact HTTPS URLs (AWS feed, Azure blog page), bounded `max_length` (≤ 10,000) / `start_index`, no extra arguments; private IPs and foreign redirects blocked |
 | Path & tool policy | — | Filesystem exposes 4 tools; reads limited to 3 files, writes limited to one report path |
 | Audit logging | MCP08 | JSONL record per call (`requested → permitted → succeeded/blocked`), **never** logging arguments or content |
 
@@ -66,7 +66,7 @@ Runtime folders (`cloud_project_nimbus/` sandbox, `cloud_project_decoy/` decoy, 
 4. **MCP config** – pinned Filesystem server, environment allow-list, `RestrictedFilesystemServer`.
 5. **Package checks** – asserts args, registry metadata, npm integrity, and PyPI hashes.
 6. **Policy tests** – offline proofs that secrets, outside paths, bad URLs and SSRF targets are blocked.
-7. **Agent run** – both servers connected, one agent, report-saved verification with a retry.
+7. **Agent run** – `source_digest()` first parses the AWS feed and Azure page in code (title/link/category only, ~4.6 KB instead of ~100 KB of raw HTML/XML) and hands that digest to the agent, which fetches a page directly only to confirm a single item. Turn limit is 15 on the first run and 8 on repairs; rate-limit retries are capped at 3. If the report is not saved and grounded, there are at most `MAX_REPAIR_ATTEMPTS = 2` repairs, each starting from a fresh short input (task + digest + problem list), never the full history. Still ungrounded after the cap: it raises a `RuntimeError` listing the problems and makes no further model calls.
 8. **Report validation** – ranks 1–20 in order (10 AWS, then 10 Azure); category counts reconcile with the table.
 
 ## Getting started
