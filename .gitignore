@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.log
+trace.flush
+.ipynb_checkpoints/
+# Generated at run time
+secret_project_00*/
+security-audit/
