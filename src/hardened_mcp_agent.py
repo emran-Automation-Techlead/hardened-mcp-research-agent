@@ -1087,7 +1087,7 @@ with (
         print("Filesystem and Fetch MCP servers connected.")
 
         summarizer_agent = Agent(
-            name="Summarizer Agent",
+            name="Cloud Research Agent",
             instructions=SUMMARIZER_AGENT_PROMPT,
             model=MODEL,
             mcp_servers=[filesystem_server, fetch_server],
